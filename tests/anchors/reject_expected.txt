@@ -1,0 +1,11 @@
+Expected outcome:
+- Low score, ideally below 60
+- Track A verdict: Reject from Track A
+- Likely red or weak categories: stakeholder load, ambiguity, internal vs client-facing, pressure / operational load, training / support, psychological / cultural safety
+
+Why:
+- Strong client-facing and consulting signals
+- High pressure and ambiguity
+- Weak support
+- Socially mediated performance demands are too high
+- Poor fit for structured, internal, low-social-load technical work

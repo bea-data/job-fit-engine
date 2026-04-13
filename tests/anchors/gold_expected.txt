@@ -1,0 +1,10 @@
+Expected outcome:
+- High score, ideally 80+
+- Track A verdict: Apply immediately
+- Critical red flags: none
+
+Why:
+- Strong fit for data quality / internal systems / validation
+- Clear structure and low client-facing exposure
+- Training, support, and progression are explicitly present
+- Should score strongly on Categories 1, 2, 3, 4, 7, 8, 9, 12, 13, 14, and 15
