@@ -124,6 +124,28 @@ class EngineTests(unittest.TestCase):
 
         self.assertEqual(training_support.band, "amber")
 
+    def test_competitive_salary_does_not_lower_psychological_safety(self) -> None:
+        description = """
+        Junior Data Quality Engineer supporting an internal platform team.
+        You will write SQL and Python validation checks, test APIs, investigate
+        defects, and monitor data pipelines using clear acceptance criteria and
+        documented processes. The role includes structured onboarding,
+        mentorship, feedback, and a predictable hybrid schedule with normal
+        hours. This is a permanent role with career progression, supportive
+        colleagues, and a competitive salary.
+        """
+
+        result = evaluate_job_description(description)
+        psychological_safety = next(
+            category
+            for category in result.category_results
+            if category.number == 14
+        )
+
+        self.assertEqual(psychological_safety.band, "green")
+        self.assertNotIn("competitive", psychological_safety.reason.lower())
+        self.assertEqual(result.verdict, "Apply immediately")
+
     def test_explicit_or_gateways_are_conditional_not_unclear(self) -> None:
         description = """
         Entry requirements: applicants need either prior data experience, a

@@ -1305,7 +1305,6 @@ def evaluate_psychological_safety(context: RuleContext) -> CategoryResult:
         ],
         red_terms=[
             "thick skin",
-            "competitive",
             "demanding",
             "political",
             "punitive",
