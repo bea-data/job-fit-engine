@@ -1,8 +1,7 @@
 [theme]
-base="light"
-
-primaryColor="#D96846"
-backgroundColor="#F7F5F2"              # softer than pure white
-secondaryBackgroundColor="#FFFFFF"     # clean cards
-textColor="#2F3020"
-font="sans serif"
+base = "light"
+primaryColor = "#FF991C"
+backgroundColor = "#F7F4EE"
+secondaryBackgroundColor = "#FFFDF9"
+textColor = "#24231F"
+font = "sans serif"
