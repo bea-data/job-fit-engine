@@ -3,6 +3,7 @@ from html import escape
 import streamlit as st
 
 from job_fit_engine.engine import evaluate_job_description
+from job_fit_engine.pdf import extract_text_from_pdf
 
 APP_CSS = """
 <style>
@@ -73,6 +74,17 @@ label,
 .stTextArea textarea:focus {
     border-color: rgba(255, 153, 28, 0.75) !important;
     box-shadow: 0 0 0 4px rgba(255, 153, 28, 0.12) !important;
+}
+
+[data-testid="stFileUploader"] {
+    background: rgba(255, 255, 255, 0.78);
+    border: 1px dashed var(--border);
+    border-radius: 16px;
+    padding: 0.4rem 0.55rem 0.2rem;
+}
+
+[data-testid="stFileUploader"] section {
+    padding: 0.2rem 0 0.1rem;
 }
 
 .stButton > button {
@@ -379,58 +391,103 @@ def render_category_card(category) -> None:
     )
 
 
+def resolve_job_description_input(
+    pasted_text: str,
+    uploaded_pdf,
+) -> tuple[str | None, str | None, bool]:
+    cleaned_text = pasted_text.strip()
+    if cleaned_text:
+        source_note = "Evaluated pasted text."
+        if uploaded_pdf is not None:
+            source_note = (
+                "Evaluated pasted text. Pasted text takes priority over the uploaded PDF."
+            )
+        return cleaned_text, source_note, False
+
+    if uploaded_pdf is None:
+        return None, None, False
+
+    extracted_text = extract_text_from_pdf(uploaded_pdf)
+    return extracted_text, "Evaluated extracted PDF text.", True
+
+
 st.markdown(APP_CSS, unsafe_allow_html=True)
 
 st.title("Job Fit Engine")
 
 job_title = st.text_input("Enter job title")
 job_description = st.text_area("Paste job description", height=250)
+uploaded_pdf = st.file_uploader(
+    "Upload JD PDF",
+    type=["pdf"],
+    help="Upload a text-based job description PDF. OCR is not supported.",
+)
+st.caption("Pasted text still works, and it takes priority if both inputs are provided.")
 
 if st.button("Evaluate"):
-    if not job_description.strip():
-        st.warning("Please paste a job description.")
+    if not job_description.strip() and uploaded_pdf is None:
+        st.warning("Please paste a job description or upload a JD PDF.")
     else:
-        result = evaluate_job_description(job_description)
-
-        if job_title.strip():
-            st.caption(f"Reviewing: {job_title.strip()}")
-
-        render_status_card(
-            "Eligibility",
-            result.eligibility_status,
-            result.eligibility_reasons,
-        )
-        render_status_card(
-            "Stretch Classification",
-            result.stretch_risk,
-            result.stretch_reason,
-        )
-
-        render_score_summary(result.total_score, result.verdict)
-
-        if result.track_b_status and result.track_b_reason:
-            render_status_card(
-                "Track B Fallback",
-                result.track_b_status,
-                result.track_b_reason,
+        try:
+            job_description_text, source_note, used_pdf = resolve_job_description_input(
+                job_description,
+                uploaded_pdf,
             )
-
-        if result.critical_red_flags:
-            render_status_card(
-                "Critical Red Flags",
-                "Present",
-                result.critical_red_flags,
-                tone="red",
-            )
+        except Exception as error:
+            st.error(f"Could not extract text from the uploaded PDF: {error}")
         else:
-            render_status_card(
-                "Critical Red Flags",
-                "None",
-                "No critical red flags detected.",
-                tone="green",
-            )
+            if not job_description_text or not job_description_text.strip():
+                st.warning(
+                    "The uploaded PDF contains little or no extractable text. OCR is not supported, so please paste the job description instead."
+                )
+            else:
+                result = evaluate_job_description(job_description_text)
 
-        st.subheader("15-category breakdown")
+                if job_title.strip():
+                    st.caption(f"Reviewing: {job_title.strip()}")
+                if source_note:
+                    st.caption(source_note)
+                if used_pdf and len(job_description_text.split()) < 20:
+                    st.warning(
+                        "The uploaded PDF contains very little extractable text, so the evaluation may be low confidence."
+                    )
 
-        for category in result.category_results:
-            render_category_card(category)
+                render_status_card(
+                    "Eligibility",
+                    result.eligibility_status,
+                    result.eligibility_reasons,
+                )
+                render_status_card(
+                    "Stretch Classification",
+                    result.stretch_risk,
+                    result.stretch_reason,
+                )
+
+                render_score_summary(result.total_score, result.verdict)
+
+                if result.track_b_status and result.track_b_reason:
+                    render_status_card(
+                        "Track B Fallback",
+                        result.track_b_status,
+                        result.track_b_reason,
+                    )
+
+                if result.critical_red_flags:
+                    render_status_card(
+                        "Critical Red Flags",
+                        "Present",
+                        result.critical_red_flags,
+                        tone="red",
+                    )
+                else:
+                    render_status_card(
+                        "Critical Red Flags",
+                        "None",
+                        "No critical red flags detected.",
+                        tone="green",
+                    )
+
+                st.subheader("15-category breakdown")
+
+                for category in result.category_results:
+                    render_category_card(category)

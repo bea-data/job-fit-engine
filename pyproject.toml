@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Rule-based Track A job scoring CLI"
 readme = "README.md"
 requires-python = ">=3.10"
+dependencies = ["pypdf>=5.0.0"]
 
 [project.scripts]
 job-fit-engine = "job_fit_engine.cli:main"

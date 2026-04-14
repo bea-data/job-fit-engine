@@ -1,8 +1,18 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import Mock, patch
 
 from job_fit_engine.engine import evaluate_eligibility, evaluate_job_description
+from job_fit_engine.pdf import extract_text_from_pdf
+
+
+class FakeUploadedPdf:
+    def __init__(self, payload: bytes) -> None:
+        self.payload = payload
+
+    def getvalue(self) -> bytes:
+        return self.payload
 
 
 class EngineTests(unittest.TestCase):
@@ -190,6 +200,27 @@ class EngineTests(unittest.TestCase):
         self.assertTrue(result.verdict.startswith("Reject from Track A"))
         self.assertEqual(result.track_b_status, "Not suitable for Track B")
         self.assertIn("red safety signals", result.track_b_reason)
+
+
+class PdfExtractionTests(unittest.TestCase):
+    @patch("job_fit_engine.pdf.PdfReader")
+    def test_extract_text_from_pdf_joins_text_from_all_pages(self, mock_pdf_reader) -> None:
+        first_page = Mock()
+        first_page.extract_text.return_value = "First page"
+        second_page = Mock()
+        second_page.extract_text.return_value = "Second page"
+        third_page = Mock()
+        third_page.extract_text.return_value = None
+        mock_pdf_reader.return_value.pages = [first_page, second_page, third_page]
+
+        extracted_text = extract_text_from_pdf(FakeUploadedPdf(b"%PDF-test"))
+
+        self.assertEqual(extracted_text, "First page\nSecond page")
+
+    def test_extract_text_from_pdf_raises_clear_error_when_pypdf_is_missing(self) -> None:
+        with patch("job_fit_engine.pdf.PdfReader", None):
+            with self.assertRaisesRegex(RuntimeError, "pypdf"):
+                extract_text_from_pdf(FakeUploadedPdf(b"%PDF-test"))
 
 
 if __name__ == "__main__":
