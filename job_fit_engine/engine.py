@@ -99,6 +99,12 @@ BOILERPLATE_HEADINGS = [
     "apprenticeship standard",
     "provider information",
     "your training plan",
+    "about the team",
+    "our team",
+    "team overview",
+    "about the company",
+    "company overview",
+    "who we are",
 ]
 
 CANDIDATE_GRADUATION_YEAR = 2022
@@ -176,13 +182,10 @@ STAKEHOLDER_GREEN_TERMS = [
 STAKEHOLDER_AMBER_TERMS = [
     "cross functional",
     "collaborate",
-    "collaborative",
     "partner",
     "work with teams",
     "stakeholder",
     "stakeholders",
-    "communicate",
-    "communication",
     "influence",
     "liaise",
     "coordinate with third parties",
@@ -229,7 +232,6 @@ HIGH_STAKEHOLDER_OWNERSHIP_TERMS = {
     "stakeholder management",
     "manage stakeholders",
     "stakeholder relationships",
-    "relationship management",
     "business partnering",
     "business partner",
     "client facing",
@@ -897,6 +899,38 @@ def has_strong_anchor_match(
     return any(match in anchor_terms for match in matches) or len(matches) >= minimum_count
 
 
+def extract_title_text(original_text: str) -> str:
+    for raw_line in original_text.splitlines():
+        stripped = raw_line.strip()
+        if stripped:
+            return stripped
+    return ""
+
+
+def find_matches_in_title_and_sections(
+    context: RuleContext,
+    phrases: Iterable[str],
+    *,
+    allowed_kinds: set[str],
+) -> list[str]:
+    matches: list[str] = []
+    title_text = extract_title_text(context.original_text)
+    if title_text:
+        for match in find_matches(normalize_text(title_text), phrases):
+            if match not in matches:
+                matches.append(match)
+
+    for match in find_matches_in_sections(
+        context.sections,
+        phrases,
+        allowed_kinds=allowed_kinds,
+    ):
+        if match not in matches:
+            matches.append(match)
+
+    return matches
+
+
 def evaluate_core_alignment(context: RuleContext) -> CategoryResult:
     technical_core_matches = find_role_core_matches(
         context, TECHNICAL_CORE_ALIGNMENT_TERMS
@@ -919,8 +953,8 @@ def evaluate_core_alignment(context: RuleContext) -> CategoryResult:
         )
         + domain_core_matches
     )
-    red_matches = find_matches(
-        context.normalized_text,
+    red_matches = find_role_core_matches(
+        context,
         [
             "business analyst",
             "stakeholder management",
@@ -1174,7 +1208,11 @@ def evaluate_barrier_to_entry(context: RuleContext) -> CategoryResult:
 
     green_matches = find_matches(context.normalized_text, green_terms)
     amber_matches = find_matches(context.normalized_text, amber_terms)
-    red_matches = find_matches(context.normalized_text, red_terms)
+    red_matches = find_matches_in_title_and_sections(
+        context,
+        red_terms,
+        allowed_kinds={SECTION_KIND_REQUIREMENTS},
+    )
 
     years = context.years_required
     if years is not None:
@@ -1351,7 +1389,6 @@ def evaluate_ambiguity_level(context: RuleContext) -> CategoryResult:
             "adaptable",
             "changing priorities",
             "evolving",
-            "flexible",
         ],
         red_terms=[
             "ambiguous",
@@ -1382,7 +1419,6 @@ def evaluate_structure(context: RuleContext) -> CategoryResult:
         ],
         amber_terms=[
             "varied",
-            "dynamic",
             "changing",
             "ad hoc",
         ],
@@ -1533,7 +1569,6 @@ def evaluate_work_mode(context: RuleContext) -> CategoryResult:
             "one location",
         ],
         amber_terms=[
-            "flexible",
             "some travel",
             "onsite as needed",
         ],
@@ -1562,7 +1597,6 @@ def evaluate_training_support(
     amber_matches = find_matches(
         context.normalized_text,
         [
-            "collaborative team",
             "support available",
             "some guidance",
         ],
@@ -1571,7 +1605,6 @@ def evaluate_training_support(
         context.normalized_text,
         [
             "minimal supervision",
-            "self starter",
             "independent from day one",
             "no training",
             "hit the ground running",
@@ -1646,7 +1679,6 @@ def evaluate_psychological_safety(context: RuleContext) -> CategoryResult:
         green_terms=[
             "supportive",
             "inclusive",
-            "collaborative",
             "respectful",
             "feedback",
             "wellbeing",

@@ -124,6 +124,25 @@ class EngineTests(unittest.TestCase):
 
         self.assertEqual(training_support.band, "amber")
 
+    def test_self_starter_does_not_force_training_support_red(self) -> None:
+        description = """
+        Junior Data Quality Engineer for an internal platform team.
+        You will write SQL validation checks, investigate defects, and monitor
+        data pipelines using documented processes and clear acceptance
+        criteria. Structured onboarding, mentorship, and feedback are
+        provided. We are looking for a proactive self starter.
+        """
+
+        result = evaluate_job_description(description)
+        training_support = next(
+            category
+            for category in result.category_results
+            if category.number == 12
+        )
+
+        self.assertNotEqual(training_support.band, "red")
+        self.assertNotIn("red self starter", training_support.reason.lower())
+
     def test_competitive_salary_does_not_lower_psychological_safety(self) -> None:
         description = """
         Junior Data Quality Engineer supporting an internal platform team.
@@ -169,6 +188,47 @@ class EngineTests(unittest.TestCase):
         status, _ = evaluate_eligibility(description)
 
         self.assertEqual(status, "Unclear")
+
+    def test_senior_stakeholders_phrase_does_not_force_barrier_red(self) -> None:
+        description = """
+        Junior Data Analyst for an internal reporting team.
+        You will prepare dashboards, investigate data issues, and present
+        monthly updates to senior stakeholders. Structured onboarding and
+        mentorship are provided.
+        """
+
+        result = evaluate_job_description(description)
+        barrier_to_entry = next(
+            category
+            for category in result.category_results
+            if category.number == 3
+        )
+
+        self.assertNotEqual(barrier_to_entry.band, "red")
+        self.assertNotIn("senior", barrier_to_entry.reason.lower())
+
+    def test_lead_generation_team_blurb_does_not_force_seniority_penalty(self) -> None:
+        description = """
+        Data Operations Analyst
+
+        About the team:
+        The commercial team supports lead generation and marketing campaigns
+        across the business.
+
+        Responsibilities:
+        Reconcile records, respond to queries, maintain process documentation,
+        and support internal reporting for operations.
+        """
+
+        result = evaluate_job_description(description)
+        barrier_to_entry = next(
+            category
+            for category in result.category_results
+            if category.number == 3
+        )
+
+        self.assertNotEqual(barrier_to_entry.band, "red")
+        self.assertNotIn("lead", barrier_to_entry.reason.lower())
 
     def test_student_only_language_is_ineligible_for_2022_graduate(self) -> None:
         description = """
@@ -367,6 +427,40 @@ class EngineTests(unittest.TestCase):
 
         self.assertEqual(core_alignment.band, "green")
         self.assertEqual(technical_fit.band, "green")
+
+    def test_genuinely_stakeholder_heavy_role_still_scores_red(self) -> None:
+        description = """
+        Business Analyst
+        You will manage stakeholder relationships, run workshops, gather
+        requirements from multiple business teams, and present
+        recommendations to executives.
+        """
+
+        result = evaluate_job_description(description)
+        stakeholder_load = next(
+            category
+            for category in result.category_results
+            if category.number == 5
+        )
+
+        self.assertEqual(stakeholder_load.band, "red")
+        self.assertIn("Stakeholder load", result.critical_red_flags)
+
+    def test_true_lead_role_still_scores_barrier_red(self) -> None:
+        description = """
+        Lead Data Engineer
+        You will own architecture decisions, mentor engineers, and bring 6+
+        years of experience.
+        """
+
+        result = evaluate_job_description(description)
+        barrier_to_entry = next(
+            category
+            for category in result.category_results
+            if category.number == 3
+        )
+
+        self.assertEqual(barrier_to_entry.band, "red")
 
     def test_junior_labelled_business_partner_role_is_still_rejected(self) -> None:
         description = """
