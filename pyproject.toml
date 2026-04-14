@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "job-fit-engine"
 version = "0.1.0"
 description = "Rule-based Track A job scoring CLI"
-readme = "specs/track_a_core_bridge.md"
+readme = "README.md"
 requires-python = ">=3.10"
 
 [project.scripts]
