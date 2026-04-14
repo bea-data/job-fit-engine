@@ -158,6 +158,18 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(status, "Conditional")
         self.assertTrue(any("conditional" in reason.lower() for reason in reasons))
 
+    def test_filtered_domain_requirements_stay_unclear_not_conditional(self) -> None:
+        description = """
+        Requirements:
+        Degree in policy, finance, business, or a similar field, plus prior data
+        analysis experience and experience in policy administration or financial
+        services environments.
+        """
+
+        status, _ = evaluate_eligibility(description)
+
+        self.assertEqual(status, "Unclear")
+
     def test_student_only_language_is_ineligible_for_2022_graduate(self) -> None:
         description = """
         Graduate Software Analyst programme for current students and final year
@@ -326,6 +338,36 @@ class EngineTests(unittest.TestCase):
         self.assertNotIn("Stakeholder load", result.critical_red_flags)
         self.assertGreaterEqual(result.total_score, 75)
 
+    def test_junior_technical_role_keeps_green_core_and_technical_fit(self) -> None:
+        description = """
+        Junior Data Engineer Apprentice
+
+        What you'll do at work:
+        Build and maintain data pipelines, support ETL processes, write SQL and
+        Python, monitor data quality, fix data issues, and work with the data
+        engineering team on internal systems. Training, mentorship, onboarding
+        support, and day-release study are provided.
+
+        Entry requirements:
+        Applicants need either A-levels, a relevant qualification, or
+        equivalent prior experience in data or software.
+        """
+
+        result = evaluate_job_description(description)
+        core_alignment = next(
+            category
+            for category in result.category_results
+            if category.number == 1
+        )
+        technical_fit = next(
+            category
+            for category in result.category_results
+            if category.number == 2
+        )
+
+        self.assertEqual(core_alignment.band, "green")
+        self.assertEqual(technical_fit.band, "green")
+
     def test_junior_labelled_business_partner_role_is_still_rejected(self) -> None:
         description = """
         Junior Data and Insights Analyst
@@ -350,6 +392,74 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(stakeholder_load.band, "red")
         self.assertIn("Stakeholder load", result.critical_red_flags)
         self.assertTrue(result.verdict.startswith("Reject from Track A"))
+
+    def test_domain_heavy_analyst_role_with_sql_and_systems_is_not_treated_as_strong_technical_fit(self) -> None:
+        description = """
+        Policy Data Management Analyst
+
+        Role summary:
+        Support policy data management operations across internal systems. You
+        will use SQL, Excel, and reporting tools to investigate mismatches,
+        reconcile records, respond to queries, coordinate with third parties,
+        chase outstanding issues, maintain procedure guides, support onboarding
+        of policies into the administration system, and produce data analysis
+        for operational teams. You will work with internal stakeholders across
+        policy, operations, and change teams to resolve incidents and improve
+        data quality.
+
+        Requirements:
+        Experience in data analysis, reconciliation, process improvement, and
+        corporate or financial services environments. Knowledge of policy
+        administration systems is useful.
+        """
+
+        result = evaluate_job_description(description)
+        core_alignment = next(
+            category
+            for category in result.category_results
+            if category.number == 1
+        )
+        technical_fit = next(
+            category
+            for category in result.category_results
+            if category.number == 2
+        )
+        stakeholder_load = next(
+            category
+            for category in result.category_results
+            if category.number == 5
+        )
+        training_support = next(
+            category
+            for category in result.category_results
+            if category.number == 12
+        )
+
+        self.assertEqual(core_alignment.band, "amber")
+        self.assertEqual(technical_fit.band, "amber")
+        self.assertEqual(stakeholder_load.band, "amber")
+        self.assertNotEqual(training_support.band, "green")
+        self.assertLess(result.total_score, 80)
+        self.assertNotEqual(result.verdict, "Apply immediately")
+
+    def test_business_object_onboarding_does_not_count_as_training_support(self) -> None:
+        description = """
+        Operations Data Coordinator
+
+        Responsibilities:
+        Support onboarding of policies and client records into the
+        administration system, reconcile records, respond to queries, follow up
+        issues with third parties, and maintain procedure guides for the team.
+        """
+
+        result = evaluate_job_description(description)
+        training_support = next(
+            category
+            for category in result.category_results
+            if category.number == 12
+        )
+
+        self.assertNotEqual(training_support.band, "green")
 
     def test_training_boilerplate_mixed_with_duties_does_not_force_stakeholder_red(self) -> None:
         description = """

@@ -156,6 +156,14 @@ CONDITIONAL_ELIGIBILITY_TERMS = [
     "equivalent",
 ]
 
+CONDITIONAL_GATEWAY_INTRODUCERS = [
+    "either",
+    "one of the following",
+    "may qualify through",
+    "qualify through",
+    "may be eligible through",
+]
+
 STAKEHOLDER_GREEN_TERMS = [
     "individual contributor",
     "heads down",
@@ -177,6 +185,16 @@ STAKEHOLDER_AMBER_TERMS = [
     "communication",
     "influence",
     "liaise",
+    "coordinate with third parties",
+    "third parties",
+    "respond to queries",
+    "resolve queries",
+    "issue handling",
+    "chase issues",
+    "follow up issues",
+    "buy in",
+    "buy-in",
+    "dependency management",
 ]
 
 STAKEHOLDER_RED_TERMS = [
@@ -223,6 +241,172 @@ SECTION_KIND_REQUIREMENTS = "requirements"
 SECTION_KIND_SUPPORT = "support"
 SECTION_KIND_BOILERPLATE = "boilerplate"
 SECTION_KIND_OTHER = "other"
+
+ROLE_CORE_SECTION_KINDS = {
+    SECTION_KIND_DUTIES,
+    SECTION_KIND_REQUIREMENTS,
+    SECTION_KIND_OTHER,
+}
+
+TECHNICAL_CORE_ALIGNMENT_TERMS = [
+    "data engineer",
+    "data engineering",
+    "engineering team",
+    "backend",
+    "back end",
+    "platform",
+    "infrastructure",
+    "quality assurance",
+    "qa",
+    "test automation",
+    "software engineer",
+    "automation",
+    "pipeline",
+    "pipelines",
+    "etl",
+    "api",
+    "apis",
+    "validation",
+    "testing",
+    "monitoring",
+]
+
+HIGH_CONFIDENCE_TECHNICAL_CORE_TERMS = {
+    "data engineer",
+    "data engineering",
+    "backend",
+    "back end",
+    "platform",
+    "infrastructure",
+    "quality assurance",
+    "qa",
+    "test automation",
+    "software engineer",
+    "pipeline",
+    "pipelines",
+    "etl",
+}
+
+TECHNICAL_IMPLEMENTATION_TERMS = [
+    "build pipelines",
+    "build data pipelines",
+    "maintain data pipelines",
+    "pipeline",
+    "pipelines",
+    "etl",
+    "automation",
+    "automate",
+    "testing",
+    "validation",
+    "debugging",
+    "troubleshooting",
+    "root cause",
+    "api",
+    "apis",
+    "database",
+    "python",
+    "scripts",
+    "monitoring",
+    "implementation",
+    "implement",
+    "data platform",
+    "backend",
+    "infrastructure",
+]
+
+HIGH_CONFIDENCE_IMPLEMENTATION_TERMS = {
+    "build pipelines",
+    "build data pipelines",
+    "maintain data pipelines",
+    "pipeline",
+    "pipelines",
+    "etl",
+    "automation",
+    "automate",
+    "api",
+    "apis",
+    "data platform",
+    "backend",
+    "infrastructure",
+    "testing",
+    "validation",
+}
+
+TECHNICAL_TOOL_TERMS = [
+    "sql",
+    "systems",
+    "system",
+    "excel",
+    "spreadsheet",
+    "power bi",
+    "vba",
+    "reporting tools",
+    "data analysis",
+]
+
+DOMAIN_OPERATIONS_CORE_TERMS = [
+    "analyst",
+    "operations",
+    "operational",
+    "policy",
+    "policies",
+    "pensions",
+    "reconciliation",
+    "reconcile",
+    "reporting",
+    "procedure guide",
+    "procedure guides",
+    "procedures",
+    "records",
+    "query",
+    "queries",
+    "coordinate",
+    "coordination",
+    "third party",
+    "third parties",
+    "administration system",
+    "scheme",
+    "schemes",
+    "case",
+    "cases",
+    "issue",
+    "issues",
+    "incident",
+    "incidents",
+    "onboarding",
+    "respond to queries",
+    "chase",
+    "follow up",
+    "follow-up",
+    "operational teams",
+    "process ownership",
+    "process owner",
+    "procedural",
+]
+
+EXPLICIT_SUPPORT_GREEN_TERMS = [
+    "training provided",
+    "structured support",
+    "structured onboarding",
+    "onboarding support",
+    "structured induction",
+    "induction",
+    "mentorship",
+    "mentor",
+    "learn on the job",
+    "learning and development",
+    "development programme",
+    "development program",
+    "apprenticeship",
+    "shadowing",
+    "buddy",
+    "coaching",
+    "supportive manager",
+    "feedback",
+    "training and support",
+    "day release study",
+    "day-release study",
+]
 
 
 def clean_description(text: str) -> str:
@@ -696,38 +880,48 @@ def is_track_a_reject(verdict: str) -> bool:
     return verdict.startswith(TRACK_A_REJECT_PREFIX)
 
 
+def find_role_core_matches(context: RuleContext, phrases: Iterable[str]) -> list[str]:
+    return find_matches_in_sections(
+        context.sections,
+        phrases,
+        allowed_kinds=ROLE_CORE_SECTION_KINDS,
+    )
+
+
+def has_strong_anchor_match(
+    matches: list[str],
+    anchor_terms: set[str],
+    *,
+    minimum_count: int = 2,
+) -> bool:
+    return any(match in anchor_terms for match in matches) or len(matches) >= minimum_count
+
+
 def evaluate_core_alignment(context: RuleContext) -> CategoryResult:
-    return evaluate_keyword_category(
-        number=1,
-        name="Core career-path alignment",
-        weight=12,
-        context=context,
-        green_terms=[
-            "backend",
-            "back end",
-            "systems",
-            "platform",
-            "infrastructure",
-            "qa",
-            "quality assurance",
-            "test automation",
-            "data quality",
-            "validation",
-            "software engineer",
-            "python",
-            "sql",
-        ],
-        amber_terms=[
-            "operations",
-            "support engineer",
-            "technical support",
-            "application support",
-            "process improvement",
-            "reporting",
-            "analyst",
-            "implementation",
-        ],
-        red_terms=[
+    technical_core_matches = find_role_core_matches(
+        context, TECHNICAL_CORE_ALIGNMENT_TERMS
+    )
+    tool_matches = find_role_core_matches(context, TECHNICAL_TOOL_TERMS)
+    domain_core_matches = find_role_core_matches(context, DOMAIN_OPERATIONS_CORE_TERMS)
+    amber_matches = unique_items(
+        find_matches(
+            context.normalized_text,
+            [
+                "operations",
+                "support engineer",
+                "technical support",
+                "application support",
+                "process improvement",
+                "reporting",
+                "analyst",
+                "implementation",
+            ],
+        )
+        + domain_core_matches
+    )
+    red_matches = find_matches(
+        context.normalized_text,
+        [
             "business analyst",
             "stakeholder management",
             "relationship management",
@@ -740,39 +934,121 @@ def evaluate_core_alignment(context: RuleContext) -> CategoryResult:
             "presentations",
         ],
     )
+    strong_technical_core = has_strong_anchor_match(
+        technical_core_matches,
+        HIGH_CONFIDENCE_TECHNICAL_CORE_TERMS,
+    )
+
+    if red_matches and not strong_technical_core:
+        return make_result(
+            1,
+            "Core career-path alignment",
+            12,
+            RED,
+            build_reason(
+                RED,
+                technical_core_matches,
+                amber_matches,
+                red_matches,
+                "The role core looks too stakeholder-heavy and business-facing.",
+            ),
+        )
+
+    if domain_core_matches and not strong_technical_core:
+        overlap_matches = technical_core_matches or tool_matches
+        return make_result(
+            1,
+            "Core career-path alignment",
+            12,
+            AMBER,
+            "The role has some technical overlap ("
+            + format_matches(overlap_matches or amber_matches)
+            + "), but the core reads more like "
+            + format_matches(domain_core_matches)
+            + ".",
+        )
+
+    if strong_technical_core and len(domain_core_matches) >= 3:
+        return make_result(
+            1,
+            "Core career-path alignment",
+            12,
+            AMBER,
+            "The role still contains engineering-aligned work ("
+            + format_matches(technical_core_matches)
+            + "), but it is materially mixed with "
+            + format_matches(domain_core_matches)
+            + ".",
+        )
+
+    if strong_technical_core:
+        return make_result(
+            1,
+            "Core career-path alignment",
+            12,
+            GREEN,
+            build_reason(
+                GREEN,
+                technical_core_matches,
+                amber_matches,
+                red_matches,
+                "The core career-path alignment looks strong.",
+            ),
+        )
+
+    if tool_matches:
+        return make_result(
+            1,
+            "Core career-path alignment",
+            12,
+            AMBER,
+            "Technical vocabulary appears ("
+            + format_matches(tool_matches)
+            + "), but tools alone do not make the role a strong engineering fit.",
+        )
+
+    band = choose_band([], amber_matches, red_matches, default=AMBER)
+    return make_result(
+        1,
+        "Core career-path alignment",
+        12,
+        band,
+        build_reason(
+            band,
+            [],
+            amber_matches,
+            red_matches,
+            "The role core looks adjacent rather than directly aligned.",
+        ),
+    )
 
 
 def evaluate_technical_fit(context: RuleContext) -> CategoryResult:
-    return evaluate_keyword_category(
-        number=2,
-        name="Technical systems fit",
-        weight=8,
-        context=context,
-        green_terms=[
-            "systems",
-            "automation",
-            "testing",
-            "validate",
-            "validation",
-            "correctness",
-            "debugging",
-            "troubleshooting",
-            "root cause",
-            "api",
-            "database",
-            "sql",
-            "python",
-            "scripts",
-            "monitoring",
-        ],
-        amber_terms=[
-            "reporting",
-            "dashboard",
-            "documentation",
-            "process",
-            "spreadsheet",
-        ],
-        red_terms=[
+    implementation_matches = find_role_core_matches(
+        context, TECHNICAL_IMPLEMENTATION_TERMS
+    )
+    tool_matches = find_role_core_matches(context, TECHNICAL_TOOL_TERMS)
+    domain_core_matches = find_role_core_matches(context, DOMAIN_OPERATIONS_CORE_TERMS)
+    amber_matches = unique_items(
+        find_matches(
+            context.normalized_text,
+            [
+                "reporting",
+                "dashboard",
+                "documentation",
+                "process",
+                "spreadsheet",
+                "reconciliation",
+                "power bi",
+                "vba",
+                "excel",
+            ],
+        )
+        + tool_matches
+    )
+    red_matches = find_matches(
+        context.normalized_text,
+        [
             "coordination",
             "liaise",
             "translate business",
@@ -780,6 +1056,93 @@ def evaluate_technical_fit(context: RuleContext) -> CategoryResult:
             "workshops",
             "business requirements",
         ],
+    )
+    strong_implementation = has_strong_anchor_match(
+        implementation_matches,
+        HIGH_CONFIDENCE_IMPLEMENTATION_TERMS,
+    )
+
+    if red_matches and not strong_implementation:
+        return make_result(
+            2,
+            "Technical systems fit",
+            8,
+            RED,
+            build_reason(
+                RED,
+                implementation_matches,
+                amber_matches,
+                red_matches,
+                "The role looks more like coordination than technical delivery.",
+            ),
+        )
+
+    if (tool_matches or implementation_matches) and domain_core_matches and not strong_implementation:
+        overlap_matches = implementation_matches or tool_matches
+        return make_result(
+            2,
+            "Technical systems fit",
+            8,
+            AMBER,
+            "The role uses technical tools ("
+            + format_matches(overlap_matches)
+            + "), but the day-to-day delivery looks more like "
+            + format_matches(domain_core_matches)
+            + " than systems-building work.",
+        )
+
+    if strong_implementation and len(domain_core_matches) >= 3:
+        return make_result(
+            2,
+            "Technical systems fit",
+            8,
+            AMBER,
+            "There is real technical overlap ("
+            + format_matches(implementation_matches)
+            + "), but it sits inside a role core shaped by "
+            + format_matches(domain_core_matches)
+            + ".",
+        )
+
+    if strong_implementation:
+        return make_result(
+            2,
+            "Technical systems fit",
+            8,
+            GREEN,
+            build_reason(
+                GREEN,
+                implementation_matches,
+                amber_matches,
+                red_matches,
+                "Technical systems fit looks strong.",
+            ),
+        )
+
+    if tool_matches:
+        return make_result(
+            2,
+            "Technical systems fit",
+            8,
+            AMBER,
+            "Tools like "
+            + format_matches(tool_matches)
+            + " appear, but tool mentions alone do not show a technical systems role.",
+        )
+
+    band = choose_band([], amber_matches, red_matches, default=AMBER)
+    return make_result(
+        2,
+        "Technical systems fit",
+        8,
+        band,
+        build_reason(
+            band,
+            [],
+            amber_matches,
+            red_matches,
+            "Technical systems fit is partial rather than central.",
+        ),
     )
 
 
@@ -1194,15 +1557,7 @@ def evaluate_training_support(
 ) -> CategoryResult:
     green_matches = find_matches(
         context.normalized_text,
-        [
-            "training",
-            "mentorship",
-            "onboarding",
-            "supportive manager",
-            "feedback",
-            "buddy",
-            "coaching",
-        ],
+        EXPLICIT_SUPPORT_GREEN_TERMS,
     )
     amber_matches = find_matches(
         context.normalized_text,
@@ -1461,10 +1816,20 @@ def find_conditional_eligibility_matches(lowered_text: str) -> list[str]:
     matched_terms = [
         term for term in CONDITIONAL_ELIGIBILITY_TERMS if term in lowered_text
     ]
-    has_gateway_shape = (
-        " or " in lowered_text
-        or "either" in lowered_text
-        or "one of the following" in lowered_text
+    explicit_gateway = any(
+        introducer in lowered_text
+        for introducer in CONDITIONAL_GATEWAY_INTRODUCERS
+    )
+    route_or_count = len(re.findall(r"\bor\b", lowered_text))
+    route_pattern = re.compile(
+        r"\b("
+        + "|".join(re.escape(term) for term in CONDITIONAL_ELIGIBILITY_TERMS)
+        + r")\b[^.:\n;]{0,80}\bor\b[^.:\n;]{0,80}\b("
+        + "|".join(re.escape(term) for term in CONDITIONAL_ELIGIBILITY_TERMS)
+        + r")\b"
+    )
+    has_gateway_shape = explicit_gateway or (
+        route_or_count >= 2 and route_pattern.search(lowered_text) is not None
     )
     if not has_gateway_shape:
         return []
