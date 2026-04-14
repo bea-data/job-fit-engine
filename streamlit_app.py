@@ -303,6 +303,8 @@ def tone_name(value: str) -> str:
         return lower
     if lower in {"eligible", "supported stretch", "strong buffer", "apply", "apply immediately"}:
         return "green"
+    if lower == "conditional":
+        return "amber"
     if lower.startswith("reject from track a"):
         return "red"
     if "ineligible" in lower and "possibly" not in lower:

@@ -34,6 +34,20 @@ IGNORE_PHRASES = [
     "employment process",
 ]
 
+APPRENTICESHIP_BOILERPLATE_PHRASES = [
+    "off-the-job training",
+    "off the job training",
+    "apprenticeship standard",
+    "knowledge skills and behaviours",
+    "knowledge, skills and behaviours",
+    "training provider",
+    "standard reference",
+    "functional skills",
+    "end point assessment",
+    "endpoint assessment",
+    "modules covering",
+]
+
 CANDIDATE_GRADUATION_YEAR = 2022
 
 STUDENT_ONLY_PHRASES = [
@@ -75,14 +89,84 @@ RECENT_GRADUATE_WINDOW_PATTERN = re.compile(
     r"\bgraduat(?:ed|e)\s+within\s+the\s+last\s+(12|24)\s+months\b"
 )
 
+CONDITIONAL_ELIGIBILITY_TERMS = [
+    "experience",
+    "qualification",
+    "apprenticeship",
+    "a level",
+    "a-level",
+    "degree",
+    "diploma",
+    "certificate",
+    "btec",
+    "gcse",
+    "equivalent",
+]
+
+STAKEHOLDER_GREEN_TERMS = [
+    "individual contributor",
+    "heads down",
+    "independent work",
+    "internal team",
+    "focus time",
+    "small team",
+]
+
+STAKEHOLDER_AMBER_TERMS = [
+    "cross functional",
+    "collaborate",
+    "collaborative",
+    "partner",
+    "work with teams",
+    "stakeholder",
+    "stakeholders",
+    "communicate",
+    "communication",
+    "influence",
+    "liaise",
+]
+
+STAKEHOLDER_RED_TERMS = [
+    "stakeholder management",
+    "manage stakeholders",
+    "stakeholder relationships",
+    "relationship management",
+    "business partnering",
+    "business partner",
+    "lead workshops",
+    "run workshops",
+    "requirements gathering",
+    "gather requirements",
+    "present to senior stakeholders",
+    "present to executives",
+    "persuade stakeholders",
+    "client facing",
+    "customer facing",
+]
+
+STAKEHOLDER_BUSINESS_CONTEXT_TERMS = [
+    "business analyst",
+    "business partner",
+    "customer success",
+    "account management",
+    "project manager",
+    "product manager",
+    "external clients",
+]
+
 
 def clean_description(text: str) -> str:
     cleaned_lines = []
     for line in text.splitlines():
-        lowered = line.lower()
+        stripped = line.strip()
+        lowered = stripped.lower()
+        if not stripped:
+            continue
         if any(phrase in lowered for phrase in IGNORE_PHRASES):
             continue
-        cleaned_lines.append(line)
+        if any(phrase in lowered for phrase in APPRENTICESHIP_BOILERPLATE_PHRASES):
+            continue
+        cleaned_lines.append(stripped)
     return "\n".join(cleaned_lines).strip()
 
 
@@ -97,6 +181,7 @@ def _evaluate_eligibility(cleaned_description: str) -> tuple[str, list[str]]:
 
     ineligible_reasons: list[str] = []
     possible_reasons: list[str] = []
+    conditional_reasons: list[str] = []
     eligible_reasons: list[str] = []
 
     student_only_matches = find_matches(normalized_text, STUDENT_ONLY_PHRASES)
@@ -137,8 +222,18 @@ def _evaluate_eligibility(cleaned_description: str) -> tuple[str, list[str]]:
             "The UK right-to-work requirement is compatible with a UK citizen who does not need sponsorship."
         )
 
+    conditional_gateway_matches = find_conditional_eligibility_matches(lowered_text)
+    if conditional_gateway_matches:
+        conditional_reasons.append(
+            "The entry requirements are conditional, with multiple qualifying routes through "
+            + format_matches(conditional_gateway_matches)
+            + "."
+        )
+
     if possible_reasons:
         return "Possibly ineligible", unique_items(possible_reasons)
+    if conditional_reasons:
+        return "Conditional", unique_items(conditional_reasons + eligible_reasons)
     if eligible_reasons:
         return "Eligible", unique_items(eligible_reasons)
 
@@ -202,13 +297,13 @@ def evaluate_job_description(job_description: str) -> EvaluationResult:
         for result in results
         if result.number in CRITICAL_CATEGORY_NUMBERS and result.band == RED
     ]
-
-    if total_score >= 80 and not critical_red_flags:
-        verdict = "Apply immediately"
-    elif total_score >= 70 and not critical_red_flags:
-        verdict = "Apply"
-    else:
-        verdict = TRACK_A_REJECT_PREFIX
+    verdict = evaluate_track_a_verdict(
+        results,
+        total_score=total_score,
+        critical_red_flags=critical_red_flags,
+        stretch_risk=stretch_risk,
+        eligibility_status=eligibility_status,
+    )
     if low_confidence:
         verdict = f"{verdict} (low confidence: limited input)"
     track_b_status, track_b_reason = evaluate_track_b(results, verdict)
@@ -230,11 +325,15 @@ def evaluate_job_description(job_description: str) -> EvaluationResult:
 def evaluate_stretch_risk(category_results: list[CategoryResult]) -> tuple[str, str]:
     categories = {result.number: result for result in category_results}
 
+    core_alignment = categories[1]
     technical_fit = categories[2]
     barrier_to_entry = categories[3]
+    day_one_usefulness = categories[4]
     stakeholder_load = categories[5]
     ambiguity_level = categories[6]
     structure = categories[7]
+    ramp_up_realism = categories[8]
+    internal_vs_client = categories[9]
     training_support = categories[12]
 
     technical_stretch = technical_fit.band in {AMBER, RED} or barrier_to_entry.band in {
@@ -265,6 +364,21 @@ def evaluate_stretch_risk(category_results: list[CategoryResult]) -> tuple[str, 
             + ".",
         )
 
+    if (
+        core_alignment.band == GREEN
+        and technical_fit.band in {GREEN, AMBER}
+        and barrier_to_entry.band in {GREEN, AMBER}
+        and day_one_usefulness.band in {GREEN, AMBER}
+        and ramp_up_realism.band == GREEN
+        and training_support.band == GREEN
+        and stakeholder_load.band != RED
+        and internal_vs_client.band != RED
+    ):
+        return (
+            "Supported stretch",
+            "The role looks like an early-career technical stretch, but the support and day-one expectations look well scaffolded.",
+        )
+
     if stacked_technical_stretch and weak_social_load:
         return (
             "High-risk stretch",
@@ -293,6 +407,24 @@ def evaluate_stretch_risk(category_results: list[CategoryResult]) -> tuple[str, 
         "Moderate stretch",
         "Technical stretch signals are limited, so this does not look like a high-risk stretch pattern.",
     )
+
+
+def evaluate_track_a_verdict(
+    category_results: list[CategoryResult],
+    *,
+    total_score: float,
+    critical_red_flags: list[str],
+    stretch_risk: str,
+    eligibility_status: str,
+) -> str:
+    if critical_red_flags:
+        return TRACK_A_REJECT_PREFIX
+
+    if total_score >= 80:
+        return "Apply immediately"
+    if total_score >= 70:
+        return "Apply"
+    return TRACK_A_REJECT_PREFIX
 
 
 def evaluate_track_b(
@@ -542,36 +674,57 @@ def evaluate_day_one_usefulness(context: RuleContext) -> CategoryResult:
 
 
 def evaluate_stakeholder_load(context: RuleContext) -> CategoryResult:
-    return evaluate_keyword_category(
-        number=5,
-        name="Stakeholder load",
-        weight=8,
-        context=context,
-        green_terms=[
-            "individual contributor",
-            "heads down",
-            "independent work",
-            "internal team",
-            "focus time",
-            "small team",
-        ],
-        amber_terms=[
-            "cross functional",
-            "collaborate",
-            "partner",
-            "work with teams",
-        ],
-        red_terms=[
-            "stakeholder management",
-            "manage stakeholders",
-            "relationship management",
-            "client facing",
-            "customer facing",
-            "workshops",
-            "present to",
-            "influence",
-            "executive",
-        ],
+    green_matches = find_matches(context.normalized_text, STAKEHOLDER_GREEN_TERMS)
+    amber_matches = find_matches(context.normalized_text, STAKEHOLDER_AMBER_TERMS)
+    red_matches = find_matches(context.normalized_text, STAKEHOLDER_RED_TERMS)
+    business_context_matches = find_matches(
+        context.normalized_text,
+        STAKEHOLDER_BUSINESS_CONTEXT_TERMS,
+    )
+    direct_client_matches = [
+        match for match in red_matches if match in {"client facing", "customer facing"}
+    ]
+
+    if direct_client_matches or len(red_matches) >= 2 or (red_matches and business_context_matches):
+        return make_result(
+            5,
+            "Stakeholder load",
+            8,
+            RED,
+            build_reason(
+                RED,
+                green_matches,
+                amber_matches,
+                red_matches,
+                "Stakeholder-facing work looks central to the role.",
+            ),
+        )
+
+    if red_matches:
+        amber_matches = unique_items(amber_matches + red_matches)
+        return make_result(
+            5,
+            "Stakeholder load",
+            8,
+            AMBER,
+            "Some stakeholder-facing language appears ("
+            + format_matches(red_matches)
+            + "), but it does not look central enough to outweigh the role's technical delivery focus.",
+        )
+
+    band = choose_band(green_matches, amber_matches, [], default=AMBER)
+    return make_result(
+        5,
+        "Stakeholder load",
+        8,
+        band,
+        build_reason(
+            band,
+            green_matches,
+            amber_matches,
+            [],
+            "Stakeholder exposure looks normal for a collaborative technical role.",
+        ),
     )
 
 
@@ -1045,6 +1198,22 @@ def format_category_bands(results: list[CategoryResult]) -> str:
 
 def unique_items(values: list[str]) -> list[str]:
     return list(dict.fromkeys(values))
+
+
+def find_conditional_eligibility_matches(lowered_text: str) -> list[str]:
+    matched_terms = [
+        term for term in CONDITIONAL_ELIGIBILITY_TERMS if term in lowered_text
+    ]
+    has_gateway_shape = (
+        " or " in lowered_text
+        or "either" in lowered_text
+        or "one of the following" in lowered_text
+    )
+    if not has_gateway_shape:
+        return []
+    if len(unique_items(matched_terms)) >= 2:
+        return unique_items(matched_terms)
+    return []
 
 
 def find_matches(normalized_text: str, phrases: Iterable[str]) -> list[str]:

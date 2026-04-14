@@ -66,6 +66,18 @@ class EngineTests(unittest.TestCase):
 
         self.assertEqual(training_support.band, "amber")
 
+    def test_explicit_or_gateways_are_conditional_not_unclear(self) -> None:
+        description = """
+        Entry requirements: applicants need either prior data experience, a
+        relevant qualification, or apprenticeship-ready evidence of technical
+        study.
+        """
+
+        status, reasons = evaluate_eligibility(description)
+
+        self.assertEqual(status, "Conditional")
+        self.assertTrue(any("conditional" in reason.lower() for reason in reasons))
+
     def test_student_only_language_is_ineligible_for_2022_graduate(self) -> None:
         description = """
         Graduate Software Analyst programme for current students and final year
@@ -200,6 +212,39 @@ class EngineTests(unittest.TestCase):
         self.assertTrue(result.verdict.startswith("Reject from Track A"))
         self.assertEqual(result.track_b_status, "Not suitable for Track B")
         self.assertIn("red safety signals", result.track_b_reason)
+
+    def test_chambers_style_apprenticeship_role_is_not_over_penalised(self) -> None:
+        description = """
+        Junior Data Engineer Apprentice
+
+        What you'll do at work:
+        Build and maintain data pipelines, support ETL processes, write SQL and
+        Python, monitor data quality, fix data issues, and work with the data
+        engineering team on internal systems. You will collaborate with
+        colleagues across the business and influence stakeholders to improve
+        data quality. Training, mentorship, onboarding and day-release study
+        are provided throughout the apprenticeship.
+
+        Entry requirements:
+        Applicants need either A-levels, a relevant qualification, or
+        equivalent prior experience in data or software. This apprenticeship
+        includes off-the-job training and modules covering communication,
+        stakeholder engagement, apprenticeship standards, and behaviours.
+        """
+
+        result = evaluate_job_description(description)
+        stakeholder_load = next(
+            category
+            for category in result.category_results
+            if category.number == 5
+        )
+
+        self.assertEqual(result.eligibility_status, "Conditional")
+        self.assertEqual(result.stretch_risk, "Supported stretch")
+        self.assertEqual(stakeholder_load.band, "amber")
+        self.assertEqual(result.verdict, "Apply")
+        self.assertNotIn("Stakeholder load", result.critical_red_flags)
+        self.assertGreaterEqual(result.total_score, 75)
 
 
 class PdfExtractionTests(unittest.TestCase):
