@@ -1,13 +1,8 @@
 [theme]
-base = "light"
-primaryColor = "#aa70e4"
-backgroundColor = "#1036dd"
-secondaryBackgroundColor = "#654b91"
-textColor = "#8b1aaa"
-linkColor = "#e3fa4c"
+base="light"
 
-[theme.sidebar]
-backgroundColor = "#1b3796"
-secondaryBackgroundColor = "#4a547d"
-textColor = "#d7e3ef"
-primaryColor = "#ab84d1"
+primaryColor="#D96846"
+backgroundColor="#F7F5F2"              # softer than pure white
+secondaryBackgroundColor="#FFFFFF"     # clean cards
+textColor="#2F3020"
+font="sans serif"
