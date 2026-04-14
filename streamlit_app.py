@@ -406,14 +406,14 @@ if st.button("Evaluate"):
             result.stretch_reason,
         )
 
+        render_score_summary(result.total_score, result.verdict)
+
         if result.track_b_status and result.track_b_reason:
             render_status_card(
                 "Track B Fallback",
                 result.track_b_status,
                 result.track_b_reason,
             )
-
-        render_score_summary(result.total_score, result.verdict)
 
         if result.critical_red_flags:
             render_status_card(
