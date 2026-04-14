@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from job_fit_engine.engine import evaluate_job_description
+from job_fit_engine.engine import evaluate_eligibility, evaluate_job_description
 
 
 class EngineTests(unittest.TestCase):
@@ -22,6 +22,8 @@ class EngineTests(unittest.TestCase):
         self.assertGreaterEqual(result.total_score, 80)
         self.assertEqual(result.critical_red_flags, [])
         self.assertEqual(result.verdict, "Apply immediately")
+        self.assertIsNone(result.track_b_status)
+        self.assertIsNone(result.track_b_reason)
 
     def test_client_facing_analyst_role_fails_track_a(self) -> None:
         description = """
@@ -53,6 +55,141 @@ class EngineTests(unittest.TestCase):
         )
 
         self.assertEqual(training_support.band, "amber")
+
+    def test_student_only_language_is_ineligible_for_2022_graduate(self) -> None:
+        description = """
+        Graduate Software Analyst programme for current students and final year
+        students only. Applicants must be graduating in 2026.
+        """
+
+        status, reasons = evaluate_eligibility(description)
+
+        self.assertEqual(status, "Ineligible")
+        self.assertTrue(any("2022 graduate" in reason for reason in reasons))
+
+    def test_graduate_scheme_language_is_possibly_ineligible(self) -> None:
+        description = """
+        Entry-level graduate role in our software graduate scheme. Recent
+        graduates are encouraged to apply.
+        """
+
+        status, reasons = evaluate_eligibility(description)
+
+        self.assertEqual(status, "Possibly ineligible")
+        self.assertTrue(any("more recent than 2022" in reason for reason in reasons))
+
+    def test_uk_right_to_work_language_is_eligible(self) -> None:
+        description = """
+        Applicants must already have the right to work in the UK and be able to
+        work in the UK without sponsorship.
+        """
+
+        status, reasons = evaluate_eligibility(description)
+
+        self.assertEqual(status, "Eligible")
+        self.assertTrue(any("right-to-work" in reason.lower() for reason in reasons))
+
+    def test_sponsorship_available_is_neutral(self) -> None:
+        description = "Visa sponsorship available for successful candidates."
+
+        status, reasons = evaluate_eligibility(description)
+
+        self.assertEqual(status, "Unclear")
+        self.assertEqual(len(reasons), 1)
+
+    def test_track_a_scoring_still_runs_for_ineligible_roles(self) -> None:
+        description = """
+        Junior Data Quality Engineer for current students and final year students.
+        You will write SQL and Python validation checks, test APIs, investigate
+        defects, and monitor data pipelines using clear acceptance criteria and
+        documented processes. The role includes structured onboarding,
+        mentorship, feedback, and a predictable hybrid schedule with normal
+        hours. This is a permanent role with career progression and no
+        client-facing work.
+        """
+
+        result = evaluate_job_description(description)
+
+        self.assertEqual(result.eligibility_status, "Ineligible")
+        self.assertTrue(any("2022 graduate" in reason for reason in result.eligibility_reasons))
+        self.assertEqual(len(result.category_results), 15)
+        self.assertGreater(result.total_score, 0)
+
+    def test_high_risk_stretch_when_technical_and_social_stretch_stack(self) -> None:
+        description = """
+        Reporting and process analyst role. You will own documentation, reporting,
+        and process work, manage stakeholders, run workshops, and handle changing
+        priorities with minimal supervision. Candidates should bring 3 years of
+        experience.
+        """
+
+        result = evaluate_job_description(description)
+
+        self.assertEqual(result.stretch_risk, "High-risk stretch")
+        self.assertIn("Both technical scope categories are stretched", result.stretch_reason)
+
+    def test_supported_stretch_when_structure_or_support_buffers_it(self) -> None:
+        description = """
+        Reporting and process analyst role for an internal team. You will support
+        documentation and reporting work in a structured, routine environment with
+        established process, training, mentorship, and feedback. Candidates
+        should bring 3 years of experience.
+        """
+
+        result = evaluate_job_description(description)
+
+        self.assertEqual(result.stretch_risk, "Supported stretch")
+        self.assertIn("buffered", result.stretch_reason)
+
+    def test_moderate_stretch_when_only_some_technical_stretch_is_present(self) -> None:
+        description = """
+        Junior reporting analyst role. You will handle documentation and reporting
+        tasks, collaborate across teams, and adapt to changing priorities.
+        Candidates should bring 1 year of experience.
+        """
+
+        result = evaluate_job_description(description)
+
+        self.assertEqual(result.stretch_risk, "Moderate stretch")
+        self.assertIn("some technical stretch", result.stretch_reason)
+
+    def test_track_a_reject_can_be_strong_buffer(self) -> None:
+        description = """
+        Internal reporting coordinator role handling routine documentation and
+        support tasks. Structured onboarding, hybrid working, and permanent
+        contract.
+        """
+
+        result = evaluate_job_description(description)
+
+        self.assertTrue(result.verdict.startswith("Reject from Track A"))
+        self.assertEqual(result.track_b_status, "Strong Buffer")
+        self.assertIn("survivable in the short term", result.track_b_reason)
+
+    def test_track_a_reject_can_be_weak_buffer(self) -> None:
+        description = """
+        Internal reporting coordinator role handling routine documentation and
+        support tasks. Routine work, but travel required and temporary contract.
+        """
+
+        result = evaluate_job_description(description)
+
+        self.assertTrue(result.verdict.startswith("Reject from Track A"))
+        self.assertEqual(result.track_b_status, "Weak Buffer")
+        self.assertIn("mixed", result.track_b_reason)
+
+    def test_track_a_reject_can_be_not_suitable_for_track_b(self) -> None:
+        description = """
+        Internal reporting coordinator role with routine documentation work, but
+        candidates must manage stakeholders and urgent escalations in a
+        fast-paced environment. Hybrid working and permanent contract.
+        """
+
+        result = evaluate_job_description(description)
+
+        self.assertTrue(result.verdict.startswith("Reject from Track A"))
+        self.assertEqual(result.track_b_status, "Not suitable for Track B")
+        self.assertIn("red safety signals", result.track_b_reason)
 
 
 if __name__ == "__main__":

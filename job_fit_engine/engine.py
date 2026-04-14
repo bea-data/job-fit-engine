@@ -17,7 +17,137 @@ BAND_MULTIPLIERS = {
 }
 
 CRITICAL_CATEGORY_NUMBERS = {5, 8, 14}
+TRACK_A_REJECT_PREFIX = "Reject from Track A"
 NEGATION_TOKENS = {"no", "not", "non", "without"}
+
+IGNORE_PHRASES = [
+    "equal opportunity",
+    "equal opportunities",
+    "reasonable accommodation",
+    "reasonable accommodations",
+    "diversity and inclusion",
+    "diversity & inclusion",
+    "about us",
+    "our values",
+    "privacy notice",
+    "application procedure",
+    "employment process",
+]
+
+CANDIDATE_GRADUATION_YEAR = 2022
+
+STUDENT_ONLY_PHRASES = [
+    "current students",
+    "current student",
+    "penultimate year students",
+    "penultimate year student",
+    "final year students",
+    "final year student",
+    "currently enrolled students",
+    "currently enrolled student",
+]
+
+SOFT_GRADUATE_PHRASES = [
+    "recent graduate",
+    "recent graduates",
+    "new graduate",
+    "new graduates",
+    "graduate programme",
+    "graduate program",
+    "graduate scheme",
+    "entry level graduate role",
+]
+
+UK_RIGHT_TO_WORK_PHRASES = [
+    "right to work in the uk",
+    "right to work in uk",
+    "work in the uk without sponsorship",
+    "work in uk without sponsorship",
+    "ability to work in the uk without sponsorship",
+    "ability to work in uk without sponsorship",
+]
+
+CLASS_YEAR_PATTERN = re.compile(r"\bclass of\s+(2025|2026)\b")
+GRADUATING_YEAR_PATTERN = re.compile(
+    r"\bmust be graduating in\s+(2025|2026)(?:\s+or\s+(2025|2026))?\b"
+)
+RECENT_GRADUATE_WINDOW_PATTERN = re.compile(
+    r"\bgraduat(?:ed|e)\s+within\s+the\s+last\s+(12|24)\s+months\b"
+)
+
+
+def clean_description(text: str) -> str:
+    cleaned_lines = []
+    for line in text.splitlines():
+        lowered = line.lower()
+        if any(phrase in lowered for phrase in IGNORE_PHRASES):
+            continue
+        cleaned_lines.append(line)
+    return "\n".join(cleaned_lines).strip()
+
+
+def evaluate_eligibility(job_description: str) -> tuple[str, list[str]]:
+    cleaned_description = clean_description(job_description)
+    return _evaluate_eligibility(cleaned_description)
+
+
+def _evaluate_eligibility(cleaned_description: str) -> tuple[str, list[str]]:
+    normalized_text = normalize_text(cleaned_description)
+    lowered_text = cleaned_description.lower()
+
+    ineligible_reasons: list[str] = []
+    possible_reasons: list[str] = []
+    eligible_reasons: list[str] = []
+
+    student_only_matches = find_matches(normalized_text, STUDENT_ONLY_PHRASES)
+    if student_only_matches:
+        ineligible_reasons.append(
+            f"The role explicitly targets current or still-enrolled students ({format_matches(student_only_matches)}), which excludes a {CANDIDATE_GRADUATION_YEAR} graduate."
+        )
+
+    if CLASS_YEAR_PATTERN.search(lowered_text):
+        ineligible_reasons.append(
+            f"The role is limited to the class of 2025 or 2026, which excludes a {CANDIDATE_GRADUATION_YEAR} graduate."
+        )
+
+    if GRADUATING_YEAR_PATTERN.search(lowered_text):
+        ineligible_reasons.append(
+            f"The role requires candidates to be graduating in 2025 or 2026, which excludes a {CANDIDATE_GRADUATION_YEAR} graduate."
+        )
+
+    recent_graduate_window = RECENT_GRADUATE_WINDOW_PATTERN.search(lowered_text)
+    if recent_graduate_window:
+        months = recent_graduate_window.group(1)
+        ineligible_reasons.append(
+            f"The role requires candidates who graduated within the last {months} months, which excludes a {CANDIDATE_GRADUATION_YEAR} graduate."
+        )
+
+    if ineligible_reasons:
+        return "Ineligible", unique_items(ineligible_reasons)
+
+    soft_graduate_matches = find_matches(normalized_text, SOFT_GRADUATE_PHRASES)
+    if soft_graduate_matches:
+        possible_reasons.append(
+            f"The wording ({format_matches(soft_graduate_matches)}) often targets graduates more recent than {CANDIDATE_GRADUATION_YEAR}."
+        )
+
+    uk_right_to_work_matches = find_matches(normalized_text, UK_RIGHT_TO_WORK_PHRASES)
+    if uk_right_to_work_matches:
+        eligible_reasons.append(
+            "The UK right-to-work requirement is compatible with a UK citizen who does not need sponsorship."
+        )
+
+    if possible_reasons:
+        return "Possibly ineligible", unique_items(possible_reasons)
+    if eligible_reasons:
+        return "Eligible", unique_items(eligible_reasons)
+
+    return (
+        "Unclear",
+        [
+            "The description does not state an eligibility rule that clearly helps or excludes a 2022 UK citizen who does not need sponsorship."
+        ],
+    )
 
 
 @dataclass(frozen=True)
@@ -29,10 +159,14 @@ class RuleContext:
 
 def evaluate_job_description(job_description: str) -> EvaluationResult:
     """Score a job description against the Track A rubric."""
+    cleaned_description = clean_description(job_description)
+    low_confidence = len(cleaned_description.split()) < 40
+    eligibility_status, eligibility_reasons = _evaluate_eligibility(cleaned_description)
+
     context = RuleContext(
-        original_text=job_description,
-        normalized_text=normalize_text(job_description),
-        years_required=extract_max_years(job_description),
+        original_text=cleaned_description,
+        normalized_text=normalize_text(cleaned_description),
+        years_required=extract_max_years(cleaned_description),
     )
 
     results = [
@@ -60,6 +194,7 @@ def evaluate_job_description(job_description: str) -> EvaluationResult:
             evaluate_stability_progression(context),
         ]
     )
+    stretch_risk, stretch_reason = evaluate_stretch_risk(results)
 
     total_score = round(sum(result.score for result in results), 1)
     critical_red_flags = [
@@ -73,14 +208,149 @@ def evaluate_job_description(job_description: str) -> EvaluationResult:
     elif total_score >= 70 and not critical_red_flags:
         verdict = "Apply"
     else:
-        verdict = "Reject from Track A"
+        verdict = TRACK_A_REJECT_PREFIX
+    if low_confidence:
+        verdict = f"{verdict} (low confidence: limited input)"
+    track_b_status, track_b_reason = evaluate_track_b(results, verdict)
 
     return EvaluationResult(
+        eligibility_status=eligibility_status,
+        eligibility_reasons=eligibility_reasons,
+        stretch_risk=stretch_risk,
+        stretch_reason=stretch_reason,
+        track_b_status=track_b_status,
+        track_b_reason=track_b_reason,
         category_results=results,
         total_score=total_score,
         critical_red_flags=critical_red_flags,
         verdict=verdict,
     )
+
+
+def evaluate_stretch_risk(category_results: list[CategoryResult]) -> tuple[str, str]:
+    categories = {result.number: result for result in category_results}
+
+    technical_fit = categories[2]
+    barrier_to_entry = categories[3]
+    stakeholder_load = categories[5]
+    ambiguity_level = categories[6]
+    structure = categories[7]
+    training_support = categories[12]
+
+    technical_stretch = technical_fit.band in {AMBER, RED} or barrier_to_entry.band in {
+        AMBER,
+        RED,
+    }
+    stacked_technical_stretch = technical_fit.band in {AMBER, RED} and barrier_to_entry.band in {
+        AMBER,
+        RED,
+    }
+
+    support_signals = [
+        result
+        for result in (structure, training_support, stakeholder_load)
+        if result.band == GREEN
+    ]
+    weak_social_load = [
+        result
+        for result in (stakeholder_load, ambiguity_level, structure, training_support)
+        if result.band in {AMBER, RED}
+    ]
+
+    if technical_stretch and support_signals:
+        return (
+            "Supported stretch",
+            "Technical stretch is present, but it is buffered by "
+            + format_category_bands(support_signals)
+            + ".",
+        )
+
+    if stacked_technical_stretch and weak_social_load:
+        return (
+            "High-risk stretch",
+            "Both technical scope categories are stretched ("
+            + format_category_bands([technical_fit, barrier_to_entry])
+            + "), and the role also adds "
+            + format_category_bands(weak_social_load)
+            + ".",
+        )
+
+    if technical_stretch:
+        return (
+            "Moderate stretch",
+            "There is some technical stretch ("
+            + format_category_bands(
+                [
+                    result
+                    for result in (technical_fit, barrier_to_entry)
+                    if result.band in {AMBER, RED}
+                ]
+            )
+            + "), but it does not form the full high-risk pattern.",
+        )
+
+    return (
+        "Moderate stretch",
+        "Technical stretch signals are limited, so this does not look like a high-risk stretch pattern.",
+    )
+
+
+def evaluate_track_b(
+    category_results: list[CategoryResult],
+    verdict: str,
+) -> tuple[str | None, str | None]:
+    if not is_track_a_reject(verdict):
+        return None, None
+
+    categories = {result.number: result for result in category_results}
+    safety_categories = [
+        categories[5],
+        categories[6],
+        categories[7],
+        categories[10],
+        categories[14],
+    ]
+    unsafe_categories = [result for result in safety_categories if result.band == RED]
+    if unsafe_categories:
+        return (
+            "Not suitable for Track B",
+            "Track B is ruled out by red safety signals in "
+            + format_category_bands(unsafe_categories)
+            + ".",
+        )
+
+    support_categories = [
+        categories[4],
+        categories[8],
+        categories[11],
+        categories[12],
+        categories[15],
+    ]
+    stable_support_categories = [
+        result for result in support_categories if result.band in {GREEN, AMBER}
+    ]
+
+    if len(stable_support_categories) >= 4:
+        return (
+            "Strong Buffer",
+            "Track A rejects the role, but it still looks survivable in the short term because "
+            + format_category_bands(stable_support_categories)
+            + " stay supportive while the core safety categories avoid red.",
+        )
+
+    mixed_support_categories = [
+        result for result in support_categories if result.band == RED
+    ] or support_categories
+    return (
+        "Weak Buffer",
+        "The role avoids Track B disqualifiers, but the support and stability picture is mixed: "
+        + format_category_bands(mixed_support_categories)
+        + ".",
+    )
+
+
+def is_track_a_reject(verdict: str) -> bool:
+    return verdict.startswith(TRACK_A_REJECT_PREFIX)
 
 
 def evaluate_core_alignment(context: RuleContext) -> CategoryResult:
@@ -357,13 +627,13 @@ def evaluate_structure(context: RuleContext) -> CategoryResult:
             "varied",
             "dynamic",
             "changing",
+            "ad hoc",
         ],
         red_terms=[
             "fast paced",
             "chaotic",
             "reactive",
             "firefighting",
-            "ad hoc",
             "unstructured",
         ],
     )
@@ -475,10 +745,12 @@ def evaluate_pressure(context: RuleContext) -> CategoryResult:
             "service levels",
             "busy periods",
             "time sensitive",
+            "escalation",
         ],
         red_terms=[
             "urgent",
-            "escalation",
+            "urgent escalations",
+            "escalation management",
             "on call",
             "24 7",
             "incident response",
@@ -765,6 +1037,14 @@ def make_result(number: int, name: str, weight: int, band: str, reason: str) -> 
 
 def format_matches(matches: list[str]) -> str:
     return ", ".join(matches[:3])
+
+
+def format_category_bands(results: list[CategoryResult]) -> str:
+    return ", ".join(f"{result.name} ({result.band.upper()})" for result in results)
+
+
+def unique_items(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(values))
 
 
 def find_matches(normalized_text: str, phrases: Iterable[str]) -> list[str]:

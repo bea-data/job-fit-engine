@@ -41,7 +41,29 @@ def load_job_description(args: argparse.Namespace) -> str:
 
 
 def format_report(result: EvaluationResult) -> str:
-    lines = ["Track A Scorecard", ""]
+    lines = ["Eligibility", f"Status: {result.eligibility_status}"]
+    for reason in result.eligibility_reasons:
+        lines.append(f"- {reason}")
+
+    lines.extend(
+        [
+            "",
+            "Stretch Risk",
+            f"Classification: {result.stretch_risk}",
+            f"- {result.stretch_reason}",
+        ]
+    )
+    if result.track_b_status and result.track_b_reason:
+        lines.extend(
+            [
+                "",
+                "Track B",
+                f"Status: {result.track_b_status}",
+                f"- {result.track_b_reason}",
+            ]
+        )
+
+    lines.extend(["", "Track A Scorecard", ""])
     for category in result.category_results:
         label = f"{category.number:02d}. {category.name}"
         score = f"{format_score(category.score)}/{category.weight}"
