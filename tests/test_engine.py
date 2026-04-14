@@ -3,7 +3,14 @@ from __future__ import annotations
 import unittest
 from unittest.mock import Mock, patch
 
-from job_fit_engine.engine import evaluate_eligibility, evaluate_job_description
+from job_fit_engine.engine import (
+    SECTION_KIND_BOILERPLATE,
+    SECTION_KIND_DUTIES,
+    SECTION_KIND_REQUIREMENTS,
+    evaluate_eligibility,
+    evaluate_job_description,
+    parse_description_sections,
+)
 from job_fit_engine.pdf import extract_text_from_pdf
 
 
@@ -34,6 +41,57 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(result.verdict, "Apply immediately")
         self.assertIsNone(result.track_b_status)
         self.assertIsNone(result.track_b_reason)
+
+    def test_high_score_conditional_role_gets_apply_if_eligibility_can_be_evidenced_clearly(self) -> None:
+        description = """
+        Data Engineering Apprentice
+
+        What you'll do at work:
+        Assist the data engineering team with SQL, Python, pipeline checks, and
+        data quality monitoring for internal systems. Work with colleagues
+        across the business to resolve data issues using documented processes
+        and clear acceptance criteria. Structured onboarding, mentorship, and
+        shadowing are provided.
+
+        Entry requirements:
+        Applicants may qualify through prior technical study, equivalent project
+        experience, or relevant qualifications.
+
+        Training to be provided:
+        The apprenticeship includes stakeholder engagement, communication
+        modules, knowledge, skills and behaviours, and provider-led off-the-job
+        training.
+        """
+
+        result = evaluate_job_description(description)
+
+        self.assertEqual(result.eligibility_status, "Conditional")
+        self.assertGreaterEqual(result.total_score, 80)
+        self.assertEqual(
+            result.verdict, "Apply if eligibility can be evidenced clearly"
+        )
+
+    def test_high_score_role_with_amber_barrier_gets_apply_not_apply_immediately(self) -> None:
+        description = """
+        Data Quality Engineer supporting an internal platform team.
+        You will write SQL and Python validation checks, test APIs, investigate
+        defects, and monitor data pipelines using clear acceptance criteria and
+        documented processes. The role includes structured onboarding,
+        mentorship, feedback, and a predictable hybrid schedule with normal
+        hours. Candidates should bring 3 years of experience. This is a
+        permanent role with career progression and no client-facing work.
+        """
+
+        result = evaluate_job_description(description)
+        barrier_to_entry = next(
+            category
+            for category in result.category_results
+            if category.number == 3
+        )
+
+        self.assertEqual(barrier_to_entry.band, "amber")
+        self.assertGreaterEqual(result.total_score, 80)
+        self.assertEqual(result.verdict, "Apply")
 
     def test_client_facing_analyst_role_fails_track_a(self) -> None:
         description = """
@@ -245,6 +303,73 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(result.verdict, "Apply")
         self.assertNotIn("Stakeholder load", result.critical_red_flags)
         self.assertGreaterEqual(result.total_score, 75)
+
+    def test_junior_labelled_business_partner_role_is_still_rejected(self) -> None:
+        description = """
+        Junior Data and Insights Analyst
+
+        Responsibilities:
+        Partner with multiple business teams, gather requirements, run workshops,
+        present recommendations to senior stakeholders, and manage stakeholder
+        relationships across the organisation. Produce dashboards and reporting
+        packs for decision-making.
+
+        Training provided:
+        You will receive onboarding support.
+        """
+
+        result = evaluate_job_description(description)
+        stakeholder_load = next(
+            category
+            for category in result.category_results
+            if category.number == 5
+        )
+
+        self.assertEqual(stakeholder_load.band, "red")
+        self.assertIn("Stakeholder load", result.critical_red_flags)
+        self.assertTrue(result.verdict.startswith("Reject from Track A"))
+
+    def test_training_boilerplate_mixed_with_duties_does_not_force_stakeholder_red(self) -> None:
+        description = """
+        What you'll do at work:
+        Assist the data engineering team with SQL, Python, pipeline checks, and
+        data quality monitoring for internal systems. Collaborate with teams
+        across the business to resolve data issues.
+
+        Training to be provided:
+        Apprentices will study communication, stakeholder engagement, knowledge,
+        skills and behaviours, and complete off-the-job training with the
+        provider.
+        """
+
+        result = evaluate_job_description(description)
+        stakeholder_load = next(
+            category
+            for category in result.category_results
+            if category.number == 5
+        )
+
+        self.assertEqual(stakeholder_load.band, "amber")
+        self.assertNotIn("Stakeholder load", result.critical_red_flags)
+        self.assertIn(result.verdict, {"Apply", "Reject from Track A (low confidence: limited input)"})
+
+    def test_section_parser_classifies_priority_and_boilerplate_sections(self) -> None:
+        description = """
+        What you'll do at work:
+        Build data pipelines.
+
+        Entry requirements:
+        Applicants need either prior experience or a qualification.
+
+        Training to be provided:
+        Communication modules and apprenticeship standard content.
+        """
+
+        sections = parse_description_sections(description)
+
+        self.assertEqual(sections[0].kind, SECTION_KIND_DUTIES)
+        self.assertEqual(sections[1].kind, SECTION_KIND_REQUIREMENTS)
+        self.assertEqual(sections[2].kind, SECTION_KIND_BOILERPLATE)
 
 
 class PdfExtractionTests(unittest.TestCase):

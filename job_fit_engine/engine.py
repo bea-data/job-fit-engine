@@ -48,6 +48,59 @@ APPRENTICESHIP_BOILERPLATE_PHRASES = [
     "modules covering",
 ]
 
+EMPLOYER_DUTY_HEADINGS = [
+    "what you'll do at work",
+    "what you will do at work",
+    "what you'll do",
+    "what you will do",
+    "what you'll be doing",
+    "what you will be doing",
+    "responsibilities",
+    "key responsibilities",
+    "main responsibilities",
+    "role summary",
+    "about the role",
+    "job purpose",
+    "duties",
+    "main duties",
+    "day to day",
+    "day-to-day",
+    "the role",
+]
+
+REQUIREMENT_HEADINGS = [
+    "entry requirements",
+    "requirements",
+    "essential requirements",
+    "essential criteria",
+    "person specification",
+    "skills and experience",
+    "what we're looking for",
+    "what we are looking for",
+    "what you need",
+    "qualifications",
+    "experience required",
+]
+
+SUPPORT_HEADINGS = [
+    "training provided",
+    "training and support",
+    "learning and development",
+    "support and development",
+    "what we offer",
+    "development opportunities",
+]
+
+BOILERPLATE_HEADINGS = [
+    "training to be provided",
+    "training course",
+    "training course contents",
+    "course contents",
+    "apprenticeship standard",
+    "provider information",
+    "your training plan",
+]
+
 CANDIDATE_GRADUATION_YEAR = 2022
 
 STUDENT_ONLY_PHRASES = [
@@ -154,6 +207,23 @@ STAKEHOLDER_BUSINESS_CONTEXT_TERMS = [
     "external clients",
 ]
 
+HIGH_STAKEHOLDER_OWNERSHIP_TERMS = {
+    "stakeholder management",
+    "manage stakeholders",
+    "stakeholder relationships",
+    "relationship management",
+    "business partnering",
+    "business partner",
+    "client facing",
+    "customer facing",
+}
+
+SECTION_KIND_DUTIES = "duties"
+SECTION_KIND_REQUIREMENTS = "requirements"
+SECTION_KIND_SUPPORT = "support"
+SECTION_KIND_BOILERPLATE = "boilerplate"
+SECTION_KIND_OTHER = "other"
+
 
 def clean_description(text: str) -> str:
     cleaned_lines = []
@@ -170,14 +240,130 @@ def clean_description(text: str) -> str:
     return "\n".join(cleaned_lines).strip()
 
 
+def build_scoring_text(cleaned_description: str) -> tuple[list["ParsedSection"], str]:
+    sections = parse_description_sections(cleaned_description)
+    priority_sections = [
+        section.text
+        for section in sections
+        if section.kind in {SECTION_KIND_DUTIES, SECTION_KIND_REQUIREMENTS, SECTION_KIND_SUPPORT}
+    ]
+    other_sections = [
+        section.text for section in sections if section.kind == SECTION_KIND_OTHER
+    ]
+    fallback_sections = [
+        section.text for section in sections if section.kind != SECTION_KIND_BOILERPLATE
+    ]
+
+    if priority_sections:
+        scoring_parts = priority_sections + other_sections
+    else:
+        scoring_parts = fallback_sections
+
+    scoring_text = "\n".join(part for part in scoring_parts if part).strip()
+    if not scoring_text:
+        scoring_text = cleaned_description
+    return sections, scoring_text
+
+
+def parse_description_sections(cleaned_description: str) -> list["ParsedSection"]:
+    sections: list[ParsedSection] = []
+    current_heading = ""
+    current_kind = SECTION_KIND_OTHER
+    current_lines: list[str] = []
+
+    def flush_section() -> None:
+        if current_heading or current_lines:
+            section_text = "\n".join(current_lines).strip()
+            if section_text:
+                sections.append(
+                    ParsedSection(
+                        heading=current_heading,
+                        kind=current_kind,
+                        text=section_text,
+                    )
+                )
+
+    for raw_line in cleaned_description.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+
+        heading_match = extract_section_heading(stripped)
+        if heading_match is not None:
+            flush_section()
+            current_heading, current_kind, first_content = heading_match
+            current_lines = [first_content] if first_content else []
+            continue
+
+        current_lines.append(stripped)
+
+    flush_section()
+
+    if not sections and cleaned_description.strip():
+        return [
+            ParsedSection(
+                heading="",
+                kind=SECTION_KIND_OTHER,
+                text=cleaned_description.strip(),
+            )
+        ]
+    return sections
+
+
+def extract_section_heading(line: str) -> tuple[str, str, str] | None:
+    if ":" in line:
+        possible_heading, remainder = line.split(":", 1)
+        heading_kind = classify_section_heading(possible_heading)
+        if heading_kind != SECTION_KIND_OTHER:
+            return possible_heading.strip(), heading_kind, remainder.strip()
+
+    heading_kind = classify_section_heading(line)
+    if heading_kind != SECTION_KIND_OTHER and len(line.split()) <= 8:
+        return line.strip(), heading_kind, ""
+    return None
+
+
+def classify_section_heading(heading: str) -> str:
+    normalized_heading = normalize_heading(heading)
+
+    if matches_heading_pattern(normalized_heading, EMPLOYER_DUTY_HEADINGS):
+        return SECTION_KIND_DUTIES
+    if matches_heading_pattern(normalized_heading, REQUIREMENT_HEADINGS):
+        return SECTION_KIND_REQUIREMENTS
+    if matches_heading_pattern(normalized_heading, SUPPORT_HEADINGS):
+        return SECTION_KIND_SUPPORT
+    if matches_heading_pattern(normalized_heading, BOILERPLATE_HEADINGS):
+        return SECTION_KIND_BOILERPLATE
+    return SECTION_KIND_OTHER
+
+
+def normalize_heading(value: str) -> str:
+    lowered = value.lower().replace("&", " and ")
+    lowered = re.sub(r"[^a-z0-9']+", " ", lowered)
+    return re.sub(r"\s+", " ", lowered).strip()
+
+
+def matches_heading_pattern(normalized_heading: str, patterns: list[str]) -> bool:
+    return any(
+        normalized_heading == pattern or normalized_heading.startswith(f"{pattern} ")
+        for pattern in patterns
+    )
+
+
 def evaluate_eligibility(job_description: str) -> tuple[str, list[str]]:
     cleaned_description = clean_description(job_description)
     return _evaluate_eligibility(cleaned_description)
 
 
 def _evaluate_eligibility(cleaned_description: str) -> tuple[str, list[str]]:
+    sections = parse_description_sections(cleaned_description)
     normalized_text = normalize_text(cleaned_description)
     lowered_text = cleaned_description.lower()
+    requirement_text = "\n".join(
+        section.text
+        for section in sections
+        if section.kind == SECTION_KIND_REQUIREMENTS
+    ).lower()
 
     ineligible_reasons: list[str] = []
     possible_reasons: list[str] = []
@@ -222,7 +408,9 @@ def _evaluate_eligibility(cleaned_description: str) -> tuple[str, list[str]]:
             "The UK right-to-work requirement is compatible with a UK citizen who does not need sponsorship."
         )
 
-    conditional_gateway_matches = find_conditional_eligibility_matches(lowered_text)
+    conditional_gateway_matches = find_conditional_eligibility_matches(
+        requirement_text or lowered_text
+    )
     if conditional_gateway_matches:
         conditional_reasons.append(
             "The entry requirements are conditional, with multiple qualifying routes through "
@@ -246,22 +434,32 @@ def _evaluate_eligibility(cleaned_description: str) -> tuple[str, list[str]]:
 
 
 @dataclass(frozen=True)
+class ParsedSection:
+    heading: str
+    kind: str
+    text: str
+
+
+@dataclass(frozen=True)
 class RuleContext:
     original_text: str
     normalized_text: str
     years_required: int | None
+    sections: list[ParsedSection]
 
 
 def evaluate_job_description(job_description: str) -> EvaluationResult:
     """Score a job description against the Track A rubric."""
     cleaned_description = clean_description(job_description)
-    low_confidence = len(cleaned_description.split()) < 40
     eligibility_status, eligibility_reasons = _evaluate_eligibility(cleaned_description)
+    sections, scoring_text = build_scoring_text(cleaned_description)
+    low_confidence = len(scoring_text.split()) < 40
 
     context = RuleContext(
         original_text=cleaned_description,
-        normalized_text=normalize_text(cleaned_description),
-        years_required=extract_max_years(cleaned_description),
+        normalized_text=normalize_text(scoring_text),
+        years_required=extract_max_years(scoring_text),
+        sections=sections,
     )
 
     results = [
@@ -420,8 +618,21 @@ def evaluate_track_a_verdict(
     if critical_red_flags:
         return TRACK_A_REJECT_PREFIX
 
+    categories = {result.number: result for result in category_results}
+    barrier_to_entry = categories[3]
+    ramp_up_realism = categories[8]
+
     if total_score >= 80:
-        return "Apply immediately"
+        low_gating_friction = (
+            eligibility_status in {"Eligible", "Unclear"}
+            and barrier_to_entry.band == GREEN
+            and ramp_up_realism.band == GREEN
+        )
+        if low_gating_friction:
+            return "Apply immediately"
+        if eligibility_status == "Conditional":
+            return "Apply if eligibility can be evidenced clearly"
+        return "Apply"
     if total_score >= 70:
         return "Apply"
     return TRACK_A_REJECT_PREFIX
@@ -676,16 +887,46 @@ def evaluate_day_one_usefulness(context: RuleContext) -> CategoryResult:
 def evaluate_stakeholder_load(context: RuleContext) -> CategoryResult:
     green_matches = find_matches(context.normalized_text, STAKEHOLDER_GREEN_TERMS)
     amber_matches = find_matches(context.normalized_text, STAKEHOLDER_AMBER_TERMS)
-    red_matches = find_matches(context.normalized_text, STAKEHOLDER_RED_TERMS)
-    business_context_matches = find_matches(
-        context.normalized_text,
+    red_matches = find_matches_in_sections(
+        context.sections,
+        STAKEHOLDER_RED_TERMS,
+        allowed_kinds={
+            SECTION_KIND_DUTIES,
+            SECTION_KIND_REQUIREMENTS,
+            SECTION_KIND_OTHER,
+        },
+    )
+    business_context_matches = find_matches_in_sections(
+        context.sections,
         STAKEHOLDER_BUSINESS_CONTEXT_TERMS,
+        allowed_kinds={
+            SECTION_KIND_DUTIES,
+            SECTION_KIND_REQUIREMENTS,
+            SECTION_KIND_OTHER,
+        },
+    )
+    central_red_matches = find_matches_in_sections(
+        context.sections,
+        STAKEHOLDER_RED_TERMS,
+        allowed_kinds={
+            SECTION_KIND_DUTIES,
+            SECTION_KIND_REQUIREMENTS,
+            SECTION_KIND_OTHER,
+        },
     )
     direct_client_matches = [
         match for match in red_matches if match in {"client facing", "customer facing"}
     ]
+    ownership_matches = [
+        match for match in central_red_matches if match in HIGH_STAKEHOLDER_OWNERSHIP_TERMS
+    ]
 
-    if direct_client_matches or len(red_matches) >= 2 or (red_matches and business_context_matches):
+    if (
+        direct_client_matches
+        or ownership_matches
+        or len(central_red_matches) >= 2
+        or (central_red_matches and business_context_matches)
+    ):
         return make_result(
             5,
             "Stakeholder load",
@@ -1198,6 +1439,23 @@ def format_category_bands(results: list[CategoryResult]) -> str:
 
 def unique_items(values: list[str]) -> list[str]:
     return list(dict.fromkeys(values))
+
+
+def find_matches_in_sections(
+    sections: list[ParsedSection],
+    phrases: Iterable[str],
+    *,
+    allowed_kinds: set[str],
+) -> list[str]:
+    matches: list[str] = []
+    for section in sections:
+        if section.kind not in allowed_kinds:
+            continue
+        section_matches = find_matches(normalize_text(section.text), phrases)
+        for match in section_matches:
+            if match not in matches:
+                matches.append(match)
+    return matches
 
 
 def find_conditional_eligibility_matches(lowered_text: str) -> list[str]:
